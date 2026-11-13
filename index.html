@@ -388,18 +388,20 @@ function block(title,a,OP,okWord){const L=[];const ch=OP.filter(o=>a.sel.include
   L.push('• '+title+':');ch.forEach(o=>L.push('   – '+o.t+' ← '+ansTxt(o,ansOf(a,o))));
   if(a.other.trim())L.push('   – אחר: '+a.other.trim());return L}
 // ===== הסיכום שנשלח אליך (ל-Tally ולהודעה) =====
-function summary(){
-  const L=[C.name+' · '+C.id,'','[חלקים]'];
-  S.forEach((s,i)=>L.push(...block(s.title,st.sec[i],OPS(s.opts),'מושלם')));
-  if(DS.length){L.push('','[עיצוב]');DS.forEach(d=>d.items.forEach(q=>{if(q.when&&!when(q))return;const x=st.des[q.id]||{};
-    const t=(x.text||'').trim()?'„'+x.text.trim()+'”':(x.many&&x.many.length?x.many.join(', '):x.pick||'(לא ענה)');L.push('• '+q.q+' '+t)}))}
-  if(AD.length){L.push('','[להוסיף לאתר]');L.push(...block('להוסיף',st.add,OPS(AD),'לא צריך'))}
-  if(CF.length){L.push('','[רק לוודא]');CF.forEach((c,i)=>{const x=st.conf[i];
-    L.push('• '+(x.v==='yes'?'✓ ':x.v==='no'?'✗ ':'? ')+c.q+(x.v==='no'&&x.t.trim()?' ← „'+x.t.trim()+'”':x.v==='no'?' ← '+(c.no||'לא'):''))})}
-  L.push('','[פרטים]');N.forEach((n,i)=>{if(n.type==='text')L.push('• '+n.label+': '+ansTxt(n,st.need[i]))});
-  const F=files();if(F.length){L.push('','[קבצים]');F.forEach((f,i)=>L.push('• '+(i+1)+'. '+f.name+' ('+f.where+')'+(f.video?' · סרטון, '+(C.dropbox?'ב-Dropbox':'בהודעה'):'')))}
-  return L.join('\n');
-}
+// ===== התשובות מחולקות לקבוצות: כל קבוצה היא שדה נפרד במייל, כדי שיהיה קל לקרוא =====
+function groups(){
+  const G={},P=[];
+  S.forEach((s,i)=>{const L=block(s.title,st.sec[i],OPS(s.opts),'מושלם');P.push(...L)});
+  G['1. החלקים']=P.join('\n');
+  if(DS.length){const D=[];DS.forEach(d=>d.items.forEach(q=>{if(q.when&&!when(q))return;const x=st.des[q.id]||{};
+    const t=(x.text||'').trim()?'„'+x.text.trim()+'”':(x.many&&x.many.length?x.many.join(', '):x.pick||'(לא ענה)');D.push('• '+q.q+' '+t)}));G['2. עיצוב']=D.join('\n')}
+  if(AD.length)G['3. להוסיף לאתר']=block('להוסיף',st.add,OPS(AD),'לא צריך').join('\n');
+  if(CF.length)G['4. רק לוודא']=CF.map((c,i)=>{const x=st.conf[i];
+    return '• '+(x.v==='yes'?'✓ ':x.v==='no'?'✗ ':'? ')+c.q+(x.v==='no'&&x.t.trim()?' ← „'+x.t.trim()+'”':x.v==='no'?' ← '+(c.no||'לא'):'')}).join('\n');
+  G['5. פרטים']=N.map((n,i)=>[n,i]).filter(([n])=>n.type==='text').map(([n,i])=>'• '+n.label+': '+ansTxt(n,st.need[i])).join('\n');
+  const F=files();G['6. קבצים']=F.length?F.map((f,i)=>'• '+(i+1)+'. '+f.name+' ('+f.where+')'+(f.video?' · סרטון, '+(C.dropbox?'ב-Dropbox':'בהודעה'):' · ב-Tally')).join('\n'):'אין';
+  return G}
+function summary(){const G=groups();return [C.name+' · '+C.id].concat(Object.entries(G).map(([k,v])=>'\n['+k.replace(/^\d\. /,'')+']\n'+v)).join('\n')}
 
 // חלון כתיבה צמוד למעלה. onSave מקבל את הטקסט
 function writer(title,val,onSave,ph){
@@ -517,18 +519,21 @@ function compact(cut){
   N.forEach((n,i)=>{if(n.type==='text')L.push('▪ '+n.label+' '+at(n,st.need[i]))});
   return L.join('\n')}
 function tallyUrl(path,extra){
-  for(const cut of [0,300,150,80,40,15]){
-    const q=new URLSearchParams(Object.assign({},extra,{client:C.id,answers:C.web3key?'התשובות המלאות נשלחו במייל נפרד':compact(cut)}));
-    files().filter(f=>!f.video).slice(0,6).forEach((f,i)=>q.set('f'+(i+1),(i+1)+'. '+f.name+(f.spec?' ('+f.spec+')':'')));
-    const u='https://tally.so/'+path+'/'+encodeURIComponent(C.tallyId)+'?'+q.toString();
-    if(u.length<=7000)return u}
-  return 'https://tally.so/'+path+'/'+encodeURIComponent(C.tallyId)+'?client='+encodeURIComponent(C.id)+'&answers='+encodeURIComponent('ארוך מדי, ראה בשאלון')}
+  // קודם שמות הקבצים (חובה), ורק אחר כך גיבוי התשובות, בכמה שנשאר מתחת ל-7,000 תווים
+  const base=new URLSearchParams(Object.assign({},extra,{client:C.id}));
+  files().filter(f=>!f.video).slice(0,6).forEach((f,i)=>base.set('f'+(i+1),(i+1)+'. '+f.name+(f.spec?' ('+f.spec+')':'')));
+  const head='https://tally.so/'+path+'/'+encodeURIComponent(C.tallyId)+'?'+base.toString()+'&answers=';
+  const pre=C.web3key?'גיבוי מקוצר. המלא במייל נפרד "שאלון הושלם".\n':'';
+  const fits=t=>head.length+encodeURIComponent(t).length<=7000;
+  for(const cut of [0,300,150,80,40,15]){const t=pre+compact(cut);if(fits(t))return head+encodeURIComponent(t)}
+  let t=pre+compact(15);while(t.length>20&&!fits(t+'…'))t=t.slice(0,Math.floor(t.length*.9));
+  return head+encodeURIComponent(t+'…')}
 // ===== שליחת כל התשובות במלואן (Web3Forms: בקשת POST, בלי מגבלת אורך כמו בקישור). מייל אליך =====
 async function sendAnswers(){
   const sum=summary();
   if(st.ansSent===sum||st.ansManual===sum)return true;   // כבר נשלח (או נשלח ידנית באינסטגרם) בדיוק אותו דבר
   if(!C.web3key)return false;
-  const body={access_key:C.web3key,subject:'שאלון הושלם: '+C.name+(st.ansSent?' (עדכון)':''),from_name:'שאלון Next Point',client:C.id,'תשובות':sum};
+  const body=Object.assign({access_key:C.web3key,subject:'שאלון הושלם: '+C.name+(st.ansSent?' (עדכון)':''),from_name:'שאלון Next Point','לקוח':C.name+' ('+C.id+')','הסקיצה':C.sketchUrl||''},groups());
   try{const r=await fetch('https://api.web3forms.com/submit',{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
     const j=await r.json().catch(()=>({}));if(r.ok&&j.success!==false){st.ansSent=sum;save();return true}}catch(e){}
   return false}
